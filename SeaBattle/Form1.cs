@@ -46,6 +46,7 @@ namespace SeaBattle
 
         private bool shipsPlaced = false;
         private bool opponentShipsPlaced = false;
+        private bool gameOver = false;
 
         private Ship selectedShip = null;
         private bool horizontalPlacement = true;
@@ -265,9 +266,7 @@ namespace SeaBattle
             try
             {
                 if (connected && writer != null)
-                {
                     writer.WriteLine("PLACED");
-                }
             }
             catch { }
 
@@ -286,7 +285,6 @@ namespace SeaBattle
             }
         }
 
-
         private void PlayerButton_Click(object sender, EventArgs e)
         {
             if (shipsPlaced)
@@ -301,9 +299,7 @@ namespace SeaBattle
             if (selectedShip == null)
             {
                 foreach (Ship s in playerShips)
-                {
                     foreach (Point p in s.Cells)
-                    {
                         if (p == pos)
                         {
                             selectedShip = s;
@@ -311,8 +307,6 @@ namespace SeaBattle
                             lblStatus.Text = "Корабль выбран. Выберите клетку для новой позиции.";
                             return;
                         }
-                    }
-                }
 
                 lblStatus.Text = "Корабль не выбран. Кликните по зелёной клетке (кораблю).";
             }
@@ -350,32 +344,22 @@ namespace SeaBattle
         private void PaintShipOnButtons(Ship s, Color color)
         {
             foreach (Point p in s.Cells)
-            {
                 playerButtons[p.X, p.Y].BackColor = color;
-            }
         }
 
         private void ClearShipFromButtons(Ship s)
         {
             foreach (Point p in s.Cells)
-            {
                 playerButtons[p.X, p.Y].BackColor = Color.LightBlue;
-            }
         }
 
         private bool CanPlaceShip(List<Ship> ships, Point[] cells)
         {
             foreach (Ship s in ships)
-            {
                 foreach (Point c in s.Cells)
-                {
                     foreach (Point n in cells)
-                    {
                         if (Math.Abs(c.X - n.X) <= 1 && Math.Abs(c.Y - n.Y) <= 1)
                             return false;
-                    }
-                }
-            }
             return true;
         }
 
@@ -436,9 +420,7 @@ namespace SeaBattle
             try
             {
                 if (shipsPlaced && writer != null)
-                {
                     writer.WriteLine("PLACED");
-                }
             }
             catch { }
 
@@ -452,6 +434,12 @@ namespace SeaBattle
             if (!connected)
             {
                 lblStatus.Text = "Нет подключения.";
+                return;
+            }
+
+            if (gameOver)
+            {
+                lblStatus.Text = "Игра завершена.";
                 return;
             }
 
@@ -474,7 +462,7 @@ namespace SeaBattle
             }
 
             Button btn = (Button)sender;
-            if (!btn.Enabled) return; // запрещаем стрелять по уже заблокированной клетке
+            if (!btn.Enabled) return;
 
             string[] p = btn.Tag.ToString().Split(',');
             int x = int.Parse(p[0]);
@@ -487,7 +475,7 @@ namespace SeaBattle
             try
             {
                 writer.WriteLine($"SHOT:{x}:{y}");
-                myTurn = false; // ждём ответа
+                myTurn = false;
             }
             catch
             {
@@ -556,6 +544,45 @@ namespace SeaBattle
             }
         }
 
+        private void CheckWinCondition()
+        {
+            if (gameOver) return;
+
+            bool playerLost = true;
+            foreach (Ship s in playerShips)
+                if (!s.IsSunk())
+                {
+                    playerLost = false;
+                    break;
+                }
+
+            bool enemyLost = (enemyShips.Count >= shipSizes.Length);
+
+            if (playerLost)
+            {
+                gameOver = true;
+                myTurn = false;
+                MessageBox.Show("Все ваши корабли потоплены! Вы проиграли.");
+                DisableAllButtons();
+            }
+            else if (enemyLost)
+            {
+                gameOver = true;
+                myTurn = false;
+                MessageBox.Show("Все корабли противника потоплены! Вы победили!");
+                DisableAllButtons();
+            }
+        }
+
+        private void DisableAllButtons()
+        {
+            for (int i = 0; i < GRID_SIZE; i++)
+                for (int j = 0; j < GRID_SIZE; j++)
+                {
+                    playerButtons[i, j].Enabled = false;
+                    enemyButtons[i, j].Enabled = false;
+                }
+        }
 
         private void ReadLoop()
         {
@@ -583,47 +610,40 @@ namespace SeaBattle
                     Ship hitShip = null;
 
                     foreach (var ship in playerShips)
-                    {
                         if (ship.Hit(shot))
                         {
                             hit = true;
                             hitShip = ship;
                             break;
                         }
-                    }
 
-                    // пометка на вашем поле и проверка на потопление
                     this.Invoke(new Action(() =>
                     {
                         playerButtons[x, y].BackColor = hit ? Color.Red : Color.Gray;
                         playerButtons[x, y].Enabled = false;
 
                         if (hitShip != null && hitShip.IsSunk())
-                        {
-                            HighlightSunkShip(hitShip); // покраска и блокировка вокруг
-                        }
+                            HighlightSunkShip(hitShip);
 
                         lblStatus.Text = hit ? "Противник попал." : "Противник промахнулся.";
 
                         if (!hit)
-                            myTurn = true; // если промах — теперь ваш ход
+                            myTurn = true;
                     }));
 
-                    // отправляем результат: RESULT:x:y:hit(1/0):sunk(1/0):cellsList
                     try
                     {
                         int hitFlag = hit ? 1 : 0;
                         int sunkFlag = (hitShip != null && hitShip.IsSunk()) ? 1 : 0;
                         string cellsList = "";
+
                         if (sunkFlag == 1)
                         {
-                            // кодируем клетки потопленного корабля как "x,y|x,y|..."
                             StringBuilder sb = new StringBuilder();
                             foreach (Point cp in hitShip.Cells)
-                            {
                                 sb.Append(cp.X).Append(',').Append(cp.Y).Append('|');
-                            }
-                            if (sb.Length > 0) sb.Length--; // убрать последний '|'
+
+                            if (sb.Length > 0) sb.Length--;
                             cellsList = sb.ToString();
                         }
 
@@ -647,22 +667,43 @@ namespace SeaBattle
 
                         if (sunk && !string.IsNullOrEmpty(cellsList))
                         {
-                            // раскодируем клетки и пометим потопленный корабль и его ореол
-                            string[] coords = cellsList.Split('|');
                             List<Point> shipCells = new List<Point>();
+                            string[] coords = cellsList.Split('|');
                             foreach (string c in coords)
                             {
                                 string[] xy = c.Split(',');
-                                int sx = int.Parse(xy[0]);
-                                int sy = int.Parse(xy[1]);
-                                shipCells.Add(new Point(sx, sy));
+                                shipCells.Add(new Point(int.Parse(xy[0]), int.Parse(xy[1])));
                             }
+
+                            Ship sunkShip = new Ship(shipCells.ToArray(), true);
+
+                            bool already = false;
+                            foreach (var es in enemyShips)
+                            {
+                                if (es.Cells.Length != sunkShip.Cells.Length) continue;
+                                bool same = true;
+                                for (int i = 0; i < es.Cells.Length; i++)
+                                    if (es.Cells[i] != sunkShip.Cells[i])
+                                    {
+                                        same = false;
+                                        break;
+                                    }
+                                if (same)
+                                {
+                                    already = true;
+                                    break;
+                                }
+                            }
+                            if (!already)
+                                enemyShips.Add(sunkShip);
+
                             MarkSunkOnEnemy(shipCells.ToArray());
                         }
 
-                        // атакующий получает повторный ход только если попал
                         myTurn = hit;
                         lblStatus.Text = myTurn ? "Ваш ход (попадание)" : "Ход соперника";
+
+                        CheckWinCondition();
                     }));
                 }
                 else if (msg == "PLACED")
@@ -692,16 +733,11 @@ namespace SeaBattle
                 }
             }
 
-            // отключение
             this.Invoke(new Action(() =>
             {
                 connected = false;
                 lblStatus.Text = "Отключено";
             }));
         }
-
-
-
     }
 }
-
